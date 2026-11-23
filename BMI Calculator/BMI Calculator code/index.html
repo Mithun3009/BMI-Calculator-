@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BMI Calculator (Python + Pyodide)</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Pyodide CDN -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+</head>
+<body class="bg-gradient-to-br from-blue-100 via-white to-pink-100 min-h-screen flex items-center justify-center">
+  <div class="bg-white/90 shadow-2xl rounded-3xl p-10 w-full max-w-md border border-blue-200">
+    <h1 class="text-3xl font-extrabold mb-8 text-center text-blue-700 tracking-tight drop-shadow">BMI Calculator</h1>
+    <form id="bmi-form" class="space-y-6">
+      <div>
+        <label for="height" class="block text-gray-700 font-semibold">Height (meters):</label>
+        <input type="text" id="height" name="height" class="mt-2 block w-full rounded-lg border-2 border-blue-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition px-4 py-2 bg-blue-50 placeholder-gray-400" placeholder="e.g., 1.75">
+      </div>
+      <div>
+        <label for="weight" class="block text-gray-700 font-semibold">Weight (kilograms):</label>
+        <input type="text" id="weight" name="weight" class="mt-2 block w-full rounded-lg border-2 border-pink-200 focus:border-pink-400 focus:ring-2 focus:ring-pink-100 transition px-4 py-2 bg-pink-50 placeholder-gray-400" placeholder="e.g., 70">
+      </div>
+      <div class="flex space-x-3 justify-center">
+        <button type="submit" class="bg-gradient-to-r from-blue-500 to-pink-400 text-white px-6 py-2 rounded-lg font-bold shadow hover:from-blue-600 hover:to-pink-500 transition">Calculate</button>
+        <button type="button" id="clear-btn" class="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg font-semibold shadow hover:bg-gray-300 transition">Clear</button>
+      </div>
+    </form>
+    <div id="result" class="mt-8 text-center text-2xl font-bold min-h-[2.5rem] transition"></div>
+    <div id="error" class="mt-2 text-center text-red-600 font-medium min-h-[1.5rem] transition"></div>
+    <div class="mt-8 text-sm text-gray-500 text-center bg-white/60 rounded-lg p-3 border border-gray-200">
+      <strong>Sample Test Case:</strong> Weight: 70kg, Height: 1.75m → <span class="text-blue-700 font-semibold">BMI: 22.86 (Normal)</span>
+    </div>
+    <div class="mt-6 flex justify-center gap-2">
+      <span class="inline-flex items-center px-2 py-1 rounded bg-yellow-100 text-yellow-700 text-xs font-semibold">Underweight</span>
+      <span class="inline-flex items-center px-2 py-1 rounded bg-green-100 text-green-700 text-xs font-semibold">Normal</span>
+      <span class="inline-flex items-center px-2 py-1 rounded bg-orange-100 text-orange-700 text-xs font-semibold">Overweight</span>
+      <span class="inline-flex items-center px-2 py-1 rounded bg-red-100 text-red-700 text-xs font-semibold">Obese</span>
+    </div>
+  </div>
+
+  <!-- JavaScript to load Pyodide and handle UI -->
+  <script>
+    let pyodideReadyPromise;
+    let pyodide;
+    let pythonModulesLoaded = false;
+
+    async function loadPyodideAndPackages() {
+      pyodide = await loadPyodide();
+      // Load all Python modules from script tags
+      const scripts = document.querySelectorAll('script[type="text/pyodide"]');
+      for (const script of scripts) {
+        await pyodide.runPythonAsync(script.textContent);
+      }
+      // Ensure main is imported and available
+      await pyodide.runPythonAsync("import main");
+      pythonModulesLoaded = true;
+    }
+
+    pyodideReadyPromise = loadPyodideAndPackages();
+
+    // Helper to color-code BMI category
+    function getCategoryColor(category) {
+      switch (category) {
+        case 'Underweight': return 'text-yellow-500';
+        case 'Normal': return 'text-green-600';
+        case 'Overweight': return 'text-orange-500';
+        case 'Obese': return 'text-red-600';
+        default: return 'text-gray-700';
+      }
+    }
+
+    document.getElementById('bmi-form').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      document.getElementById('result').textContent = '';
+      document.getElementById('error').textContent = '';
+      const height = document.getElementById('height').value.trim();
+      const weight = document.getElementById('weight').value.trim();
+      await pyodideReadyPromise;
+      try {
+        // Call Python main entry point
+        const result = await pyodide.runPythonAsync(`main.calculate_bmi_ui('${height}', '${weight}')`);
+        // result is a dict: {"bmi": float, "category": str, "message": str, "error": bool}
+        const res = JSON.parse(result);
+        if (res.error) {
+          document.getElementById('error').textContent = res.message;
+          document.getElementById('result').textContent = '';
+        } else {
+          const color = getCategoryColor(res.category);
+          document.getElementById('result').innerHTML = `<span class="${color}">BMI: ${res.bmi} (${res.category})</span>`;
+          document.getElementById('error').textContent = '';
+        }
+      } catch (err) {
+        document.getElementById('error').textContent = 'Unexpected error: ' + err;
+        document.getElementById('result').textContent = '';
+      }
+    });
+
+    document.getElementById('clear-btn').addEventListener('click', function() {
+      document.getElementById('height').value = '';
+      document.getElementById('weight').value = '';
+      document.getElementById('result').textContent = '';
+      document.getElementById('error').textContent = '';
+    });
+  </script>
+
+  <!-- Python Modules (Pyodide) -->
+  <!-- utils.py: Helper functions -->
+  <script type="text/pyodide">
+# utils.py
+"""++
+
+Helper functions for formatting and clearing inputs.
+"""
+def format_bmi(bmi):
+    """Format BMI to two decimal places as string."""
+    return f"{bmi:.2f}"
+
+import sys
+sys.modules['utils'] = sys.modules[__name__]
+  </script>
+
+  <!-- validator.py: Input validation -->
+  <script type="text/pyodide">
+# validator.py
+"""
+Validate user inputs for BMI calculation.
+"""
+def validate_inputs(height_str, weight_str):
+    try:
+        height = float(height_str)
+        weight = float(weight_str)
+    except ValueError:
+        return False, "Please enter valid numeric values."
+    if height <= 0 or weight <= 0:
+        return False, "Height and weight must be positive numbers."
+    return True, ""
+
+import sys
+sys.modules['validator'] = sys.modules[__name__]
+  </script>
+
+  <!-- bmi_calculator.py: BMI calculation logic -->
+  <script type="text/pyodide">
+# bmi_calculator.py
+"""
+Calculate BMI using the formula: BMI = weight / height^2
+"""
+def calculate_bmi(height, weight):
+    try:
+        bmi = weight / (height ** 2)
+        return bmi
+    except Exception:
+        raise ValueError("Invalid calculation. Check input values.")
+
+import sys
+sys.modules['bmi_calculator'] = sys.modules[__name__]
+  </script>
+
+  <!-- classifier.py: BMI category classification -->
+  <script type="text/pyodide">
+# classifier.py
+"""
+Classify BMI into health ranges based on WHO standards.
+"""
+def classify_bmi(bmi):
+    if bmi < 18.5:
+        return "Underweight"
+    elif 18.5 <= bmi < 25:
+        return "Normal"
+    elif 25 <= bmi < 30:
+        return "Overweight"
+    else:
+        return "Obese"
+
+import sys
+sys.modules['classifier'] = sys.modules[__name__]
+  </script>
+
+  <!-- main.py: Entry point and UI integration -->
+  <script type="text/pyodide">
+# main.py
+"""
+Entry point for BMI Calculator. Integrates validation, calculation, classification, and formatting for UI.
+"""
+import json
+
+def calculate_bmi_ui(height_str, weight_str):
+    from validator import validate_inputs
+    from bmi_calculator import calculate_bmi
+    from classifier import classify_bmi
+    from utils import format_bmi
+    # Validate inputs
+    valid, message = validate_inputs(height_str, weight_str)
+    if not valid:
+        return json.dumps({"error": True, "message": message})
+    try:
+        height = float(height_str)
+        weight = float(weight_str)
+        bmi = calculate_bmi(height, weight)
+        category = classify_bmi(bmi)
+        bmi_str = format_bmi(bmi)
+        return json.dumps({
+            "error": False,
+            "bmi": bmi_str,
+            "category": category,
+            "message": f"BMI: {bmi_str} ({category})"
+        })
+    except Exception as e:
+        return json.dumps({"error": True, "message": str(e)})
+
+import sys
+sys.modules['main'] = sys.modules[__name__]
+  </script>
+</body>
+</html>
